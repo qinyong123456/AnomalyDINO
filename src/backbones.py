@@ -1,11 +1,13 @@
 import cv2
 import torch
 import torchvision.models as models
-# import clip
 from PIL import Image
 from torchvision import transforms
 from sklearn.decomposition import PCA
 import numpy as np
+import sys
+import os
+import importlib
 
 
 # Base Wrapper Class
@@ -22,6 +24,9 @@ class VisionTransformerWrapper:
     
     def extract_features(self, img_tensor):
         raise NotImplementedError("This method should be overridden in a subclass")
+
+    def set_text_adapter(self, adapter):
+        self.text_adapter = adapter
 
 
 # ViT-B/16 Wrapper
@@ -172,6 +177,54 @@ class DINOv2Wrapper(VisionTransformerWrapper):
         elif masking_type == False:
             mask = np.ones_like(first_pc, dtype=bool)
         return mask.squeeze()
+
+
+class TextPromptAdapter:
+    def __init__(self, device, n_ctx=12, depth=9, t_n_ctx=4, text_model="ViT-L/14@336px", download_root=None):
+        self.device = device
+        sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "AnomalyCLIP"))
+        mdl = importlib.import_module("AnomalyCLIP_lib.model_load")
+        plmod = importlib.import_module("prompt_ensemble")
+        AnomalyCLIP_PromptLearner = getattr(plmod, "AnomalyCLIP_PromptLearner")
+        design_details = {"Prompt_length": n_ctx, "learnabel_text_embedding_depth": depth, "learnabel_text_embedding_length": t_n_ctx}
+        model, _ = mdl.load(text_model, device=device, design_details=design_details, jit=False, download_root=download_root or os.path.expanduser("~/.cache/clip"))
+        prompt_learner = AnomalyCLIP_PromptLearner(model.to("cpu"), design_details)
+        prompts, tokenized_prompts, compound_prompts_text = prompt_learner(cls_id=None)
+        text_features = model.encode_text_learn(prompts, tokenized_prompts, compound_prompts_text).float()
+        text_features = torch.stack(torch.chunk(text_features, dim=0, chunks=2), dim=1)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        self.text_features = text_features.to(device)
+        self.dim = self.text_features.shape[-1]
+
+    def _pad_or_truncate(self, x):
+        vd = x.shape[-1]
+        td = self.dim
+        if vd < td:
+            pad = torch.zeros(x.shape[0], td - vd, device=self.device)
+            x = torch.cat([x, pad], dim=-1)
+        elif vd > td:
+            x = x[:, :td]
+        return x
+
+    def anomaly_similarity(self, tokens_np):
+        x = torch.from_numpy(tokens_np).to(self.device)
+        if x.ndim == 1:
+            x = x.unsqueeze(0)
+        x = x.float()
+        x = x / x.norm(dim=-1, keepdim=True)
+        x = self._pad_or_truncate(x)
+        tf = self.text_features[0]
+        sim = x @ tf.t()
+        prob = (sim / 0.07).softmax(-1)
+        return prob[:, 1]
+
+    def image_anomaly_prob(self, tokens_np):
+        if tokens_np.ndim == 2:
+            mu = tokens_np.mean(axis=0)
+        else:
+            mu = tokens_np
+        p = self.anomaly_similarity(mu)
+        return p
 
 
 def get_model(model_name, device, smaller_edge_size=448):

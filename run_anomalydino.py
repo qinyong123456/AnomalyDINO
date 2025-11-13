@@ -11,6 +11,7 @@ from src.detection import run_anomaly_detection
 from src.post_eval import eval_finished_run
 from src.visualize import create_sample_plots
 from src.backbones import get_model
+from src.backbones import TextPromptAdapter
 
 
 class IntListAction(Action):
@@ -49,6 +50,13 @@ def parse_args():
 
     parser.add_argument("--tag", help="Optional tag for the saving directory.")
 
+    parser.add_argument("--use_text", default=False, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--alpha_text", type=float, default=0.4)
+    parser.add_argument("--prompt_n_ctx", type=int, default=12)
+    parser.add_argument("--prompt_depth", type=int, default=9)
+    parser.add_argument("--prompt_t_n_ctx", type=int, default=4)
+    parser.add_argument("--text_model", type=str, default="ViT-L/14@336px")
+
     args = parser.parse_args()
     return args
 
@@ -65,6 +73,13 @@ if __name__=="__main__":
     # set CUDA device
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.device[-1])
     model = get_model(args.model_name, 'cuda', smaller_edge_size=args.resolution)
+
+    if args.use_text:
+        try:
+            adapter = TextPromptAdapter(device='cuda', n_ctx=args.prompt_n_ctx, depth=args.prompt_depth, t_n_ctx=args.prompt_t_n_ctx, text_model=args.text_model, download_root=os.path.expanduser("~/.cache/clip"))
+            model.set_text_adapter(adapter)
+        except Exception as e:
+            print("Text adapter initialization failed:", e)
 
     if not args.model_name.startswith("dinov2"):
         masking_default = {o: False for o in objects}
@@ -137,8 +152,10 @@ if __name__=="__main__":
                                                                                 mask_ref_images = args.mask_ref_images,
                                                                                 rotation = rotation_default[object_name],
                                                                                 seed = seed,
-                                                                                save_patch_dists = args.eval_clf, # save patch distances for detection evaluation
-                                                                                save_tiffs = args.eval_segm)      # save anomaly maps as tiffs for segmentation evaluation
+                                                                                save_patch_dists = args.eval_clf,
+                                                                                save_tiffs = args.eval_segm,
+                                                                                use_text = args.use_text,
+                                                                                alpha_text = args.alpha_text)
                         
                         # write anomaly scores and inference times to file
                         for counter, sample in enumerate(anomaly_scores.keys()):
