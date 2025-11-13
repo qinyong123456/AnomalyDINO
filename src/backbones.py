@@ -7,7 +7,6 @@ from sklearn.decomposition import PCA
 import numpy as np
 import sys
 import os
-import importlib
 
 
 # Base Wrapper Class
@@ -182,12 +181,10 @@ class DINOv2Wrapper(VisionTransformerWrapper):
 class TextPromptAdapter:
     def __init__(self, device, n_ctx=12, depth=9, t_n_ctx=4, text_model="ViT-L/14@336px", download_root=None):
         self.device = device
-        sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "AnomalyCLIP"))
-        mdl = importlib.import_module("AnomalyCLIP_lib.model_load")
-        plmod = importlib.import_module("prompt_ensemble")
-        AnomalyCLIP_PromptLearner = getattr(plmod, "AnomalyCLIP_PromptLearner")
+        from .text_prompt import model_load as mdl
+        from .text_prompt.prompt_ensemble import AnomalyCLIP_PromptLearner
         design_details = {"Prompt_length": n_ctx, "learnabel_text_embedding_depth": depth, "learnabel_text_embedding_length": t_n_ctx}
-        model, _ = mdl.load(text_model, device=device, design_details=design_details, jit=False, download_root=download_root or os.path.expanduser("~/.cache/clip"))
+        model, _ = mdl.load(text_model, device=device, design_details=design_details, download_root=download_root or os.path.expanduser("~/.cache/clip"))
         prompt_learner = AnomalyCLIP_PromptLearner(model.to("cpu"), design_details)
         prompts, tokenized_prompts, compound_prompts_text = prompt_learner(cls_id=None)
         text_features = model.encode_text_learn(prompts, tokenized_prompts, compound_prompts_text).float()
