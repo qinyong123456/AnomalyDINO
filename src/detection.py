@@ -189,7 +189,7 @@ def run_anomaly_detection(
                     output_text = np.zeros_like(mask2, dtype=float)
                     output_text[mask2] = probs.detach().cpu().numpy().squeeze()
                     t_masked = output_text.reshape(grid_size2)
-                    score_t = float(model.text_adapter.image_anomaly_prob(features2[mask2]).detach().cpu().numpy().squeeze())
+                    score_t = float(model.text_adapter.image_anomaly_prob(features2).detach().cpu().numpy().squeeze())
                     fused_score = (1 - alpha_text) * score_v + alpha_text * score_t
                     anomaly_scores[f"{type_anomaly}/{img_test_nr}"] = fused_score
                 else:
