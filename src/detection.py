@@ -182,18 +182,15 @@ def run_anomaly_detection(
                 torch.cuda.synchronize() # Synchronize CUDA kernels before measuring time
                 inf_time = time.time() - start_time
                 inference_times[f"{type_anomaly}/{img_test_nr}"] = inf_time
-                score_v = mean_top1p(output_distances.flatten())
-
                 if use_text and hasattr(model, 'text_adapter'):
                     probs = model.text_adapter.anomaly_similarity(features2)
                     output_text = np.zeros_like(mask2, dtype=float)
                     output_text[mask2] = probs.detach().cpu().numpy().squeeze()
                     t_masked = output_text.reshape(grid_size2)
-                    score_t = float(model.text_adapter.image_anomaly_prob(features2).detach().cpu().numpy().squeeze())
-                    fused_score = (1 - alpha_text) * score_v + alpha_text * score_t
-                    anomaly_scores[f"{type_anomaly}/{img_test_nr}"] = fused_score
-                else:
-                    anomaly_scores[f"{type_anomaly}/{img_test_nr}"] = score_v
+                    output_distances = (1 - alpha_text) * output_distances + alpha_text * t_masked.flatten()
+                    d_masked = output_distances.reshape(grid_size2)
+                score_v = mean_top1p(output_distances.flatten())
+                anomaly_scores[f"{type_anomaly}/{img_test_nr}"] = score_v
 
                 # Save the anomaly maps (raw as .npy or full resolution .tiff files)
                 img_test_nr = img_test_nr.split(".")[0]
