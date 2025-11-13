@@ -63,7 +63,8 @@ class ResidualAttentionBlockLearnable(nn.Module):
                 textual_context = textual_context.expand(x.shape[1], -1, -1).permute(1, 0, 2).half()
                 x = torch.cat([prefix, textual_context, suffix], dim=0)
                 counter += 1
-        x = x + self.attn(self.ln_1(x))
+        y = self.attn(self.ln_1(x), self.ln_1(x), self.ln_1(x), need_weights=False, attn_mask=self.attn_mask)[0]
+        x = x + y
         x = x + self.mlp(self.ln_2(x))
         return [x, compound_prompts_deeper, counter]
 
